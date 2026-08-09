@@ -1,6 +1,7 @@
 import joblib
 import pandas as pd
 import os
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(script_dir, "risk_model.pkl")
 model = joblib.load(model_path)

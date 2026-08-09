@@ -11,7 +11,9 @@ def check_compliance(data):
     if dti > 1:
         dti = dti / 100
 
-    if credit_score < 600:
+    if credit_score == 0:
+        pass
+    elif credit_score < 600:
         return {
             "compliance": False,
             "reason": "Credit score below 600 — RBI minimum requirement"

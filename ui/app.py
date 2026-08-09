@@ -12,7 +12,7 @@ if "pan_verified" not in st.session_state:
     st.session_state.pan_verified = False
 
 if "cibil_score" not in st.session_state:
-    st.session_state.cibil_score = 300
+    st.session_state.cibil_score = 0
 
 if "auto_income" not in st.session_state:
     st.session_state.auto_income = 0
@@ -23,14 +23,21 @@ if "existing_emi" not in st.session_state:
 if "verified_name" not in st.session_state:
     st.session_state.verified_name = ""
 
-
 if "has_active_loan" not in st.session_state:
     st.session_state.has_active_loan = False
 
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
+    
+if "last_pan" not in st.session_state:
+    st.session_state.last_pan = ""
 
+if "last_name" not in st.session_state:
+    st.session_state.last_name = ""
 
+if "show_register_form" not in st.session_state:
+    st.session_state.show_register_form = False 
+    
 col_form, col_result = st.columns(2, gap="large")
 
 # ── Form ──────────────────────────────────────────────────────────────────────
@@ -48,9 +55,7 @@ with col_form:
                     user_data = resp.json()
 
                     if "data" in user_data:
-                        data_1 = user_data["data"]
-
-                        
+                        data_1 = user_data["data"]     
                         db_id        = data_1[0]   
                         db_name      = data_1[1]
                         cibil_score  = data_1[3]
@@ -65,17 +70,17 @@ with col_form:
                             st.session_state.auto_income   = int(income)
                             st.session_state.existing_emi  = int(existing_emi)
                             st.session_state.verified_name = db_name
-                            st.session_state.user_id       = db_id  # CHANGE: save user_id
+                            st.session_state.user_id       = db_id  
 
                             
                             if int(existing_emi) > 0:
-                                st.session_state.has_active_loan = True
                                 st.warning(
-                                    f"⚠️ PAN Verified — {db_name}, "
-                                    f"but you already have an active loan "
-                                    f"(EMI: ₹{existing_emi}/mo). "
-                                    f"New loan application is not allowed."
+                                        f"⚠️ PAN Verified — {db_name}. "
+                                        f"You have an existing EMI of ₹{existing_emi}/mo. "
+                                        f"Your eligibility will be assessed based on total DTI."
                                 )
+                                st.session_state.has_active_loan = False
+                                st.session_state.pan_verified = True  
                             else:
                                 st.session_state.has_active_loan = False
                                 st.success(f"✅ PAN Verified! Welcome, {db_name}")
@@ -84,18 +89,70 @@ with col_form:
                             st.session_state.pan_verified    = False
                             st.session_state.has_active_loan = False
                             st.error("❌ Name does not match PAN records. Please check and retry.")
-
                     else:
-                        st.session_state.pan_verified    = False
-                        st.session_state.has_active_loan = False
-                        st.error("User not found for this PAN.")
-
+                        st.warning("🆕 PAN not found in system. Please register as a new user.")
+                        st.session_state.show_register_form = True
+                        st.session_state.last_pan  = pan_number.strip().upper()  #upper case
+                        st.session_state.last_name = applicant_name.strip()     # remove name space 
+                        
+                        
                 except requests.exceptions.RequestException as e:
                     st.session_state.pan_verified = False
                     st.error(f"Error fetching user details: {e}")
         else:
             st.warning("Please enter a PAN number to verify.")
+            
+            
+    # ── New User Registration Form ────────────────────────────────────────────────
+    if st.session_state.show_register_form and not st.session_state.pan_verified:
+        with st.expander("📝 New User Registration", expanded=True):
+            st.info("Fill in your details to register.")
+            
+            reg_name = st.text_input("Full Name", value=st.session_state.last_name, key="reg_name")
+            reg_pan  = st.text_input("PAN Number", value=st.session_state.last_pan, key="reg_pan", disabled=True)
+            
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                reg_salary = st.number_input("Monthly Salary (₹)", min_value=0, step=1000, key="reg_salary")
+                reg_emi    = st.number_input("Existing EMI (₹)", min_value=0, step=500,
+                                            help="Put 0 if don't have loan", key="reg_emi")
+            with rc2:
+                reg_cibil  = st.number_input("CIBIL Score", min_value=0, max_value=900, value=0,
+                                            help="Put 0 if You don't have Credit History — AI Decide with DTI ",
+                                            key="reg_cibil")
+                reg_tenure = st.number_input("Years of Experience", min_value=0, max_value=40, key="reg_exp")
 
+            if st.button("Register & Continue", use_container_width=True):
+                if not reg_name.strip():
+                    st.error("Name required.")
+                elif reg_salary <= 0:
+                    st.error("Salary must be greater than 0.")
+                else:
+                    payload = {
+                        "name":         reg_name.strip(),
+                        "pan":          st.session_state.last_pan,
+                        "salary":       reg_salary,
+                        "cibil":        reg_cibil,
+                        "existing_emi": reg_emi
+                    }
+                    with st.spinner("Registering..."):
+                        try:
+                            resp = requests.post("http://127.0.0.1:8000/user/register", json=payload, timeout=10)
+                            resp.raise_for_status()
+                            result = resp.json()
+                            
+                            if result.get("success"):
+                                st.success("🎉 Registered successfully!")
+                                st.session_state.show_register_form = False
+                                st.session_state.pan_verified  = False
+                                st.session_state.cibil_score   = reg_cibil
+                                st.session_state.auto_income   = reg_salary
+                                st.session_state.existing_emi  = reg_emi
+                                st.rerun()
+                            else:
+                                st.error(result.get("error", "Registration failed."))
+                        except Exception as e:
+                            st.error(f"Error: {e}")                           
     if not st.session_state.pan_verified:
         st.caption("⚠️ PAN verification required before loan evaluation.")
 
@@ -115,10 +172,10 @@ with col_form:
     with c2:
         credit_score = st.number_input(
             "CIBIL Score",
-            min_value=300,
+            min_value=0,
             max_value=900,
             value=st.session_state.cibil_score,
-            disabled=True,   
+            # disabled=True,   
             help="Fetched from credit bureau via PAN. Cannot be edited manually."
         )
         
@@ -134,7 +191,7 @@ with col_form:
     st.subheader("📄 Loan Details")
     c3, c4 = st.columns(2)
     with c3:
-        loan_tenure  = st.selectbox("Tenure", ["12 months","24 months","36 months","60 months","84 months"])
+        loan_tenure  = st.selectbox("Tenure", ["12 months","24 months","36 months","48 months","60 months"])
         employment   = st.selectbox("Employment", ["Salaried","Self-Employed","Business Owner","Freelancer"])
     with c4:
         loan_purpose     = st.selectbox("Purpose", ["Home Loan","Personal Loan","Auto Loan","Education Loan","Business Loan"])
@@ -148,7 +205,6 @@ with col_form:
     if income > 0:
         dti   = round((total_emi_live / income) * 100, 1)
         label = "✅ Low Risk" if dti < 30 else "⚠️ Medium Risk" if dti < 50 else "❌ High Risk"
-        # CHANGE: Breakdown dikhao — user ko pata chale DTI kaise calculate hua
         st.metric("Live DTI", f"{dti}%", label)
         st.caption(
             f"Existing EMI ₹{int(st.session_state.existing_emi)} "
@@ -182,13 +238,7 @@ with col_form:
 with col_result:
     st.subheader("📊 AI Evaluation Result")
 
-    if st.session_state.pan_verified and st.session_state.has_active_loan:
-        st.warning(
-            f"⚠️ Note: You have an existing loan (EMI: ₹{st.session_state.existing_emi}/mo). "
-            f"Eligibility will be assessed based on your total EMI burden."
-        )
-
-    elif submit and can_submit:
+    if submit and can_submit:
         payload = {
             "income":           income,
             "loan_amount":      loan_amount,
@@ -239,14 +289,6 @@ with col_result:
                     "tenure_months": tenure_num,
                     "status": "approved"
                 }
-                try:
-                    save_resp = requests.post("http://127.0.0.1:8000/loan/save", json=save_payload, timeout=10)
-                    if save_resp.status_code == 200:
-                        st.caption("📁 Loan record saved to database.")
-                    else:
-                        st.caption("⚠️ Approved but could not save record. Contact support.")
-                except Exception:
-                    st.caption("⚠️ Could not save loan record to DB.")
 
             elif verdict == "REJECTED":
                 if active_loan_flag and compliance_reason:

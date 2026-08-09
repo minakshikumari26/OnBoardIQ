@@ -3,7 +3,7 @@ from .connection import get_connection
 def get_user_by_pan(pan):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE pan=%s", (pan,))
+    cursor.execute("SELECT * FROM users WHERE pan=%s",(pan.strip().upper(),))
     user = cursor.fetchone()
     cursor.close()
     conn.close()
@@ -34,3 +34,20 @@ def save_loan(user_id: int, loan_amount: int, tenure_months: int, status: str):
     conn.commit()
     cursor.close()
     conn.close()
+    
+def insert_new_user(name: str, pan: str, cibil: int, monthly_income: int, existing_emi: int) -> int:
+    """Insert new user, return unka generated user_id"""
+    conn = get_connection()  
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO users (name, pan, cibil_score ,monthly_income , existing_emi)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (name.strip(), pan.strip().upper(), cibil, monthly_income, existing_emi)
+    )
+    user_id = cursor.fetchone()[0]
+    conn.commit()
+    conn.close()
+    return user_id
