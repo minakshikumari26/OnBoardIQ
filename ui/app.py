@@ -1,340 +1,149 @@
+import os
+
 import streamlit as st
 import requests
 
-st.set_page_config(page_title="AI Loan Approval", page_icon="🏦", layout="wide")
+# When run inside docker-compose, this points at the "backend" service
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
-st.title("🏦 AI Loan Approval System")
-st.caption("Powered by NExtGEn-X")
+st.set_page_config(page_title="OnBoardIQ", page_icon="🏦", layout="wide")
+
+st.title("🏦 OnBoardIQ — Intelligent Account Onboarding")
+st.caption("AI-driven KYC, document verification, and risk profiling")
 st.divider()
 
-# ── Session State Init ────────────────────────────────────────────────────────
-if "pan_verified" not in st.session_state:
-    st.session_state.pan_verified = False
-
-if "cibil_score" not in st.session_state:
-    st.session_state.cibil_score = 0
-
-if "auto_income" not in st.session_state:
-    st.session_state.auto_income = 0
-
-if "existing_emi" not in st.session_state:
-    st.session_state.existing_emi = 0
-
-if "verified_name" not in st.session_state:
-    st.session_state.verified_name = ""
-
-if "has_active_loan" not in st.session_state:
-    st.session_state.has_active_loan = False
-
-if "user_id" not in st.session_state:
-    st.session_state.user_id = None
-    
-if "last_pan" not in st.session_state:
-    st.session_state.last_pan = ""
-
-if "last_name" not in st.session_state:
-    st.session_state.last_name = ""
-
-if "show_register_form" not in st.session_state:
-    st.session_state.show_register_form = False 
-    
 col_form, col_result = st.columns(2, gap="large")
 
 # ── Form ──────────────────────────────────────────────────────────────────────
 with col_form:
-    st.subheader("📋 Applicant Info")
-    applicant_name = st.text_input("Full Name", placeholder="e.g. Rahul Sharma")
-    pan_number     = st.text_input("PAN Number", placeholder="e.g. ABCDE1234F")
+    st.subheader("👤 Personal Information")
 
-    if st.button("Verify PAN", use_container_width=True):
-        if pan_number.strip():
-            with st.spinner("Fetching user details…"):
-                try:
-                    resp = requests.get(f"http://127.0.0.1:8000/user/{pan_number}", timeout=10)
-                    resp.raise_for_status()
-                    user_data = resp.json()
-
-                    if "data" in user_data:
-                        data_1 = user_data["data"]     
-                        db_id        = data_1[0]   
-                        db_name      = data_1[1]
-                        cibil_score  = data_1[3]
-                        income       = data_1[4]
-                        existing_emi = data_1[5]   
-
-                        
-                        if applicant_name.strip().lower() == db_name.strip().lower():
-
-                            st.session_state.pan_verified  = True
-                            st.session_state.cibil_score   = int(cibil_score)
-                            st.session_state.auto_income   = int(income)
-                            st.session_state.existing_emi  = int(existing_emi)
-                            st.session_state.verified_name = db_name
-                            st.session_state.user_id       = db_id  
-
-                            
-                            if int(existing_emi) > 0:
-                                st.warning(
-                                        f"⚠️ PAN Verified — {db_name}. "
-                                        f"You have an existing EMI of ₹{existing_emi}/mo. "
-                                        f"Your eligibility will be assessed based on total DTI."
-                                )
-                                st.session_state.has_active_loan = False
-                                st.session_state.pan_verified = True  
-                            else:
-                                st.session_state.has_active_loan = False
-                                st.success(f"✅ PAN Verified! Welcome, {db_name}")
-
-                        else:
-                            st.session_state.pan_verified    = False
-                            st.session_state.has_active_loan = False
-                            st.error("❌ Name does not match PAN records. Please check and retry.")
-                    else:
-                        st.warning("🆕 PAN not found in system. Please register as a new user.")
-                        st.session_state.show_register_form = True
-                        st.session_state.last_pan  = pan_number.strip().upper()  #upper case
-                        st.session_state.last_name = applicant_name.strip()     # remove name space 
-                        
-                        
-                except requests.exceptions.RequestException as e:
-                    st.session_state.pan_verified = False
-                    st.error(f"Error fetching user details: {e}")
-        else:
-            st.warning("Please enter a PAN number to verify.")
-            
-            
-    # ── New User Registration Form ────────────────────────────────────────────────
-    if st.session_state.show_register_form and not st.session_state.pan_verified:
-        with st.expander("📝 New User Registration", expanded=True):
-            st.info("Fill in your details to register.")
-            
-            reg_name = st.text_input("Full Name", value=st.session_state.last_name, key="reg_name")
-            reg_pan  = st.text_input("PAN Number", value=st.session_state.last_pan, key="reg_pan", disabled=True)
-            
-            rc1, rc2 = st.columns(2)
-            with rc1:
-                reg_salary = st.number_input("Monthly Salary (₹)", min_value=0, step=1000, key="reg_salary")
-                reg_emi    = st.number_input("Existing EMI (₹)", min_value=0, step=500,
-                                            help="Put 0 if don't have loan", key="reg_emi")
-            with rc2:
-                reg_cibil  = st.number_input("CIBIL Score", min_value=0, max_value=900, value=0,
-                                            help="Put 0 if You don't have Credit History — AI Decide with DTI ",
-                                            key="reg_cibil")
-                reg_tenure = st.number_input("Years of Experience", min_value=0, max_value=40, key="reg_exp")
-
-            if st.button("Register & Continue", use_container_width=True):
-                if not reg_name.strip():
-                    st.error("Name required.")
-                elif reg_salary <= 0:
-                    st.error("Salary must be greater than 0.")
-                else:
-                    payload = {
-                        "name":         reg_name.strip(),
-                        "pan":          st.session_state.last_pan,
-                        "salary":       reg_salary,
-                        "cibil":        reg_cibil,
-                        "existing_emi": reg_emi
-                    }
-                    with st.spinner("Registering..."):
-                        try:
-                            resp = requests.post("http://127.0.0.1:8000/user/register", json=payload, timeout=10)
-                            resp.raise_for_status()
-                            result = resp.json()
-                            
-                            if result.get("success"):
-                                st.success("🎉 Registered successfully!")
-                                st.session_state.show_register_form = False
-                                st.session_state.pan_verified  = False
-                                st.session_state.cibil_score   = reg_cibil
-                                st.session_state.auto_income   = reg_salary
-                                st.session_state.existing_emi  = reg_emi
-                                st.rerun()
-                            else:
-                                st.error(result.get("error", "Registration failed."))
-                        except Exception as e:
-                            st.error(f"Error: {e}")                           
-    if not st.session_state.pan_verified:
-        st.caption("⚠️ PAN verification required before loan evaluation.")
-
-    st.subheader("💰 Financial Details")
     c1, c2 = st.columns(2)
-
     with c1:
-        income = st.number_input(
-            "Monthly Income (₹)",
-            min_value=0,
-            step=1000,
-            value=st.session_state.auto_income,
-            help="Auto-filled from PAN records. You may edit if needed."
-        )
-        loan_amount = st.number_input("Loan Amount (₹)", min_value=0, step=10_000)
-
+        name = st.text_input("Full Name", placeholder="e.g. Rahul Sharma")
+        pan = st.text_input("PAN Number", placeholder="e.g. ABCDE1234F", max_chars=10)
+        mobile = st.text_input("Mobile Number", placeholder="10 digits", max_chars=10)
     with c2:
-        credit_score = st.number_input(
-            "CIBIL Score",
-            min_value=0,
-            max_value=900,
-            value=st.session_state.cibil_score,
-            # disabled=True,   
-            help="Fetched from credit bureau via PAN. Cannot be edited manually."
-        )
-        
-        existing_emi = st.number_input(
-            "Existing EMI (₹/mo)",
-            min_value=0,
-            step=500,
-            value=st.session_state.existing_emi,
-            disabled=True,   
-            help="Auto-filled from records. Cannot be edited."
-        )
+        dob = st.date_input("Date of Birth")
+        aadhaar = st.text_input("Aadhaar Number", placeholder="12 digits (optional)", max_chars=12)
+        email = st.text_input("Email", placeholder="you@example.com")
 
-    st.subheader("📄 Loan Details")
+    st.subheader("💼 Financial Information")
     c3, c4 = st.columns(2)
     with c3:
-        loan_tenure  = st.selectbox("Tenure", ["12 months","24 months","36 months","48 months","60 months"])
-        employment   = st.selectbox("Employment", ["Salaried","Self-Employed","Business Owner","Freelancer"])
+        monthly_income = st.number_input("Monthly Income (₹)", min_value=0, step=1000)
     with c4:
-        loan_purpose     = st.selectbox("Purpose", ["Home Loan","Personal Loan","Auto Loan","Education Loan","Business Loan"])
-        employment_years = st.number_input("Years Employed", min_value=0, max_value=40, value=3)
-
-    dti = 0.0
-    tenure_months_live = int(loan_tenure.split()[0])   # "12 months" -> 12
-    new_emi_estimate   = round(loan_amount / tenure_months_live, 0) if tenure_months_live > 0 else 0
-    total_emi_live     = st.session_state.existing_emi + new_emi_estimate
-
-    if income > 0:
-        dti   = round((total_emi_live / income) * 100, 1)
-        label = "✅ Low Risk" if dti < 30 else "⚠️ Medium Risk" if dti < 50 else "❌ High Risk"
-        st.metric("Live DTI", f"{dti}%", label)
-        st.caption(
-            f"Existing EMI ₹{int(st.session_state.existing_emi)} "
-            f"+ New EMI ~₹{int(new_emi_estimate)} "
-            f"= Total ₹{int(total_emi_live)} / Income ₹{int(income)}"
+        employment_type = st.selectbox(
+            "Employment Type",
+            ["Salaried", "Self-Employed", "Business Owner", "Government", "Freelancer"]
         )
+
+    st.subheader("📄 Document Upload")
+    document_type = st.selectbox("Document Type", ["pan", "aadhaar", "passport"])
+    document = st.file_uploader("Upload ID Document (image)", type=["png", "jpg", "jpeg"])
 
     st.divider()
 
-    can_submit = (
-        st.session_state.pan_verified and
-        income > 0 and
-        loan_amount > 0 and
-        applicant_name.strip()
-    )
-
+    can_submit = bool(name and pan and dob and document)
     if not can_submit:
-        if not st.session_state.pan_verified:
-            st.warning("🔒 Please verify your PAN before submitting.")
-        else:
-            st.warning("Fill all fields to enable evaluation.")
+        st.info("Fill name, PAN, DOB and upload a document to enable submit.")
 
-    submit = st.button(
-        "🚀 Evaluate Loan Application",
-        disabled=not can_submit,
-        use_container_width=True
-    )
+    submit = st.button("🚀 Submit for Onboarding", disabled=not can_submit, use_container_width=True)
 
 
-# ── Results ───────────────────────────────────────────────────────────────────
+# ── Result ────────────────────────────────────────────────────────────────────
 with col_result:
     st.subheader("📊 AI Evaluation Result")
 
-    if submit and can_submit:
-        payload = {
-            "income":           income,
-            "loan_amount":      loan_amount,
-            "credit_score":     st.session_state.cibil_score,
-            "emi":              st.session_state.existing_emi,
-            "loan_tenure":      loan_tenure,
-            "employment_type":  employment,
-            "loan_purpose":     loan_purpose,
-            "employment_years": employment_years,
-            "user_id":          st.session_state.user_id,
-            "existing_emi":     st.session_state.existing_emi,
-        }
-
-        with st.spinner("AI agents evaluating your application…"):
+    if submit:
+        with st.spinner("Running KYC, document, compliance and risk checks…"):
             try:
-                resp = requests.post("http://127.0.0.1:8000/loan/apply", json=payload, timeout=30)
+                files = {"document": (document.name, document.getvalue(), document.type)}
+                form_data = {
+                    "name": name,
+                    "pan": pan.upper(),
+                    "aadhaar": aadhaar,
+                    "dob": dob.strftime("%Y-%m-%d"),
+                    "mobile": mobile,
+                    "email": email,
+                    "monthly_income": str(monthly_income),
+                    "employment_type": employment_type,
+                    "document_type": document_type,
+                }
+                resp = requests.post(f"{API_URL}/onboarding/apply", data=form_data, files=files, timeout=30)
                 resp.raise_for_status()
                 result = resp.json()
-                api_ok = True
-            except requests.exceptions.ConnectionError:
-                st.error("Cannot reach API. Is FastAPI running on port 8000?")
-                api_ok = False
-            except requests.exceptions.Timeout:
-                st.error("Request timed out. Try again.")
-                api_ok = False
             except Exception as e:
-                pass    
-            compliance_reason = result.get("compliance_reason", "")
-            active_loan_flag   = result.get("active_loan", False)
-        if api_ok:
-            decision   = result.get("decision", {})
-            verdict    = decision.get("decision", "UNKNOWN").upper()
-            reason     = decision.get("reason", "No reason provided.")
-            pd_score   = result.get("pd_score", 0.0)
-            risk_level = result.get("risk_level", "UNKNOWN")
-            escalated  = result.get("escalated", False)
-            factors    = result.get("top_factors", [])
-            proc_time  = result.get("processing_time_seconds", 0)
+                st.error(f"Error: {e}")
+                result = None
+
+        if result:
+            decision = result.get("decision", "Unknown")
+            reason = result.get("reason", "")
 
             # Decision banner
-            if verdict == "APPROVED":
-                st.success("✅ APPROVED — Congratulations! Your loan has been approved.")
-
-                tenure_num = int(loan_tenure.split()[0])
-                save_payload = {
-                    "user_id":    st.session_state.user_id,
-                    "loan_amount": loan_amount,
-                    "tenure_months": tenure_num,
-                    "status": "approved"
-                }
-
-            elif verdict == "REJECTED":
-                if active_loan_flag and compliance_reason:
-                    st.error(f"❌ REJECTED — {compliance_reason}")
-                else:
-                    st.error("❌ REJECTED — Application did not meet the required criteria.")
-
-                tenure_num = int(loan_tenure.split()[0])
-                save_payload = {
-                    "user_id":       st.session_state.user_id,
-                    "loan_amount":   loan_amount,
-                    "tenure_months": tenure_num,
-                    "status":        "rejected"
-                }
-                try:
-                    requests.post("http://127.0.0.1:8000/loan/save", json=save_payload, timeout=10)
-                except Exception:
-                    pass  
-
-            elif verdict == "CONDITIONAL":
-                st.warning("⚠️ CONDITIONAL APPROVAL — Approved with conditions. See reasoning below.")
-            elif verdict == "ESCALATED":
-                st.info("👤 ESCALATED — Referred to a credit officer for manual review.")
+            if decision == "Approved":
+                st.success(f"✅ APPROVED — {reason}")
+            elif decision == "Rejected":
+                st.error(f"❌ REJECTED — {reason}")
+            elif decision == "Needs Review":
+                st.warning(f"⚠️ NEEDS REVIEW — {reason}")
             else:
-                st.info(f"Decision: {verdict}")
+                st.info(f"Decision: {decision}")
 
-            m1, m2, m3 = st.columns(3)
-            m1.metric("PD Score",     f"{pd_score:.2f}", help="Probability of Default")
-            m2.metric("Risk Level",   risk_level)
-            m3.metric("Processed In", f"{proc_time}s")
+            # Gen AI explanation (from the LangGraph 'explain' node)
+            explanation = result.get("explanation", "")
+            if explanation:
+                st.info(f"💬 **AI Message:** {explanation}")
 
-            st.subheader("🧠 AI Reasoning")
-            st.info(reason)
+            # Agent status chips
+            st.subheader("🧠 Agent Results")
+            kyc = result["kyc"]
+            doc = result["document"]
+            comp = result["compliance"]
+            risk = result["risk"]
 
-            # SHAP factors
-            if factors:
-                st.subheader("📉 Top Risk Factors (SHAP)")
-                for f in factors:
-                    fname  = f.get("factor", "").replace("_", " ").title()
-                    impact = f.get("impact", 0)
-                    sign   = "+" if impact > 0 else ""
-                    bar_w  = min(abs(impact) * 400, 100) / 100
-                    st.progress(bar_w, text=f"{fname}  —  {sign}{impact:.2f}")
+            a1, a2, a3, a4 = st.columns(4)
+            a1.metric("KYC", kyc["kyc_status"].title())
+            a2.metric("Document", doc["document_status"].title())
+            a3.metric("Compliance", comp["compliance_status"].title())
+            a4.metric("Risk", risk["risk_level"])
 
-            if escalated:
-                st.warning("👤 Case escalated. A credit officer will respond within 24 business hours.")
+            # Reasons for each agent
+            with st.expander("📋 Agent Details", expanded=True):
+                st.write(f"**KYC:** {kyc.get('reason', '')}")
+                st.write(f"**Document:** {doc.get('reason', '')}")
+                st.write(f"**Compliance:** {comp.get('reason', '')}")
+                if comp.get("matches"):
+                    st.write("Sanctions matches:")
+                    for m in comp["matches"]:
+                        st.write(f"- {m['name']} (score {m['score']})")
+                st.write(f"**Risk score:** {risk['risk_score']} / 100")
 
+            # Structured fields extracted from the document via regex
+            extracted_fields = doc.get("extracted_fields") or {}
+            if any(extracted_fields.values()):
+                st.subheader("🔍 Extracted Fields (from OCR)")
+                fc1, fc2, fc3 = st.columns(3)
+                fc1.metric("PAN",     extracted_fields.get("pan")     or "—")
+                fc2.metric("DOB",     extracted_fields.get("dob")     or "—")
+                fc3.metric("Aadhaar", extracted_fields.get("aadhaar") or "—")
+
+            # Raw OCR text preview
+            extracted_text = doc.get("extracted_text", "")
+            if extracted_text:
+                with st.expander("📄 Raw OCR Text"):
+                    st.text(extracted_text)
+
+            # Risk factors
+            if risk.get("factors"):
+                st.subheader("📉 Risk Factors")
+                for f in risk["factors"]:
+                    impact = f["impact"]
+                    sign = "+" if impact > 0 else ""
+                    bar = min(abs(impact) * 5, 100) / 100
+                    st.progress(bar, text=f"{f['factor']} — {sign}{impact}")
+
+            st.caption(f"Processed in {result.get('processing_time_seconds', 0)}s")
     else:
-        st.info("Fill in the form and click **Evaluate Loan Application** to see results.")
+        st.info("Fill the form and click **Submit for Onboarding** to see results.")

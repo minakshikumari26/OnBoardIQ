@@ -1,53 +1,101 @@
 from .connection import get_connection
 
-def get_user_by_pan(pan):
+
+def get_customer_by_pan(pan):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE pan=%s",(pan.strip().upper(),))
-    user = cursor.fetchone()
+    cursor.execute("SELECT * FROM customers WHERE pan = %s", (pan.strip().upper(),))
+    customer = cursor.fetchone()
     cursor.close()
     conn.close()
-    return user
+    return customer
 
-def check_active_loan(user_id: int) -> bool:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id FROM loans WHERE user_id = %s AND status IN ('approved', 'active')",
-        (user_id,)
-    )
-    loan = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    return loan is not None  
 
-def save_loan(user_id: int, loan_amount: int, tenure_months: int, status: str):
+def insert_customer(name, pan, aadhaar_masked, dob, mobile, email, monthly_income, employment_type):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         """
-        INSERT INTO loans (user_id, loan_amount, tenure_months, interest_rate, status)
-        VALUES (%s, %s, %s, %s, %s)
-        """,
-        (user_id, loan_amount, tenure_months, 0.0, status)
-    )
-    conn.commit()
-    cursor.close()
-    conn.close()
-    
-def insert_new_user(name: str, pan: str, cibil: int, monthly_income: int, existing_emi: int) -> int:
-    """Insert new user, return unka generated user_id"""
-    conn = get_connection()  
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO users (name, pan, cibil_score ,monthly_income , existing_emi)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO customers
+            (name, pan, aadhaar_masked, dob, mobile, email, monthly_income, employment_type)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (name.strip(), pan.strip().upper(), cibil, monthly_income, existing_emi)
+        (name, pan.upper(), aadhaar_masked, dob, mobile, email, monthly_income, employment_type),
     )
-    user_id = cursor.fetchone()[0]
+    customer_id = cursor.fetchone()[0]
     conn.commit()
+    cursor.close()
     conn.close()
-    return user_id
+    return customer_id
+
+
+def save_application(customer_id, decision, reason, kyc_status, document_status,
+                     compliance_status, risk_level, risk_score):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO onboarding_applications
+            (customer_id, decision, reason, kyc_status, document_status,
+             compliance_status, risk_level, risk_score)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (customer_id, decision, reason, kyc_status, document_status,
+         compliance_status, risk_level, risk_score),
+    )
+    application_id = cursor.fetchone()[0]
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return application_id
+
+
+def save_document(application_id, document_type, extracted_text, is_valid):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO documents (application_id, document_type, extracted_text, is_valid)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (application_id, document_type, extracted_text, is_valid),
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def list_customers():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, name, pan, dob, mobile, email, monthly_income, employment_type, created_at
+        FROM customers
+        ORDER BY id DESC
+        """
+    )
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows
+
+
+def list_applications():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT a.id, c.name, c.pan, a.decision, a.risk_level, a.risk_score,
+               a.kyc_status, a.document_status, a.compliance_status, a.created_at
+        FROM onboarding_applications a
+        JOIN customers c ON a.customer_id = c.id
+        ORDER BY a.id DESC
+        """
+    )
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows

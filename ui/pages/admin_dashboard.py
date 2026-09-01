@@ -1,86 +1,98 @@
+import os
+
 import streamlit as st
 import requests
 import pandas as pd
 
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
+
 st.set_page_config(page_title="Admin Dashboard", page_icon="🏛️", layout="wide")
 
-st.title("🏛️ Admin Dashboard")
-
-st.caption("Powered by NExtGEn-X")
+st.title("🏛️ OnBoardIQ Admin Dashboard")
+st.caption("View customers and onboarding applications")
 st.divider()
 
-# ── Fetch data from API ───────────────────────────────────────────────────────
-@st.cache_data(ttl=30)  
-def fetch_users():
-    try:
-        resp = requests.get("http://127.0.0.1:8000/admin/users", timeout=10)
-        resp.raise_for_status()
-        return resp.json().get("data", [])
-    except Exception as e:
-        st.error(f"Error fetching users: {e}")
-        return []
 
 @st.cache_data(ttl=30)
-def fetch_loans():
+def fetch_customers():
     try:
-        resp = requests.get("http://127.0.0.1:8000/admin/loans", timeout=10)
+        resp = requests.get(f"{API_URL}/admin/customers", timeout=10)
         resp.raise_for_status()
         return resp.json().get("data", [])
     except Exception as e:
-        st.error(f"Error fetching loans: {e}")
+        st.error(f"Error fetching customers: {e}")
         return []
 
-users = fetch_users()
-loans = fetch_loans()
 
-# ── Stats Row ─────────────────────────────────────────────────────────────────
-if loans:
-    df_loans = pd.DataFrame(loans, columns=["ID","User ID","Name","Loan Amount","Tenure","Status","Date"])
-    total      = len(df_loans)
-    approved   = len(df_loans[df_loans["Status"] == "approved"])
-    rejected   = len(df_loans[df_loans["Status"] == "rejected"])
-    approval_pct = round((approved / total) * 100, 1) if total > 0 else 0
+@st.cache_data(ttl=30)
+def fetch_applications():
+    try:
+        resp = requests.get(f"{API_URL}/admin/applications", timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("data", [])
+    except Exception as e:
+        st.error(f"Error fetching applications: {e}")
+        return []
+
+
+customers = fetch_customers()
+applications = fetch_applications()
+
+# ── Stats ─────────────────────────────────────────────────────────────────────
+if applications:
+    df_apps = pd.DataFrame(applications, columns=[
+        "ID", "Name", "PAN", "Decision", "Risk Level", "Risk Score",
+        "KYC", "Document", "Compliance", "Created At"
+    ])
+
+    total = len(df_apps)
+    approved = len(df_apps[df_apps["Decision"] == "Approved"])
+    rejected = len(df_apps[df_apps["Decision"] == "Rejected"])
+    review = len(df_apps[df_apps["Decision"] == "Needs Review"])
 
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("Total Applications", total)
-    s2.metric("Approved",  approved,  f"{approval_pct}%")
-    s3.metric("Rejected",  rejected)
-    s4.metric("Total Users", len(users))
+    s2.metric("Approved", approved)
+    s3.metric("Rejected", rejected)
+    s4.metric("Needs Review", review)
 
     st.divider()
 
-# ── Users Table ───────────────────────────────────────────────────────────────
-st.subheader("👥 Registered Users")
-if users:
-    df_users = pd.DataFrame(users, columns=["ID","Name","PAN","CIBIL Score","Monthly Income (₹)","Existing EMI (₹)","Created At"])
-    st.dataframe(df_users, use_container_width=True, hide_index=True)
+# ── Customers ─────────────────────────────────────────────────────────────────
+st.subheader("👥 Registered Customers")
+if customers:
+    df_customers = pd.DataFrame(customers, columns=[
+        "ID", "Name", "PAN", "DOB", "Mobile", "Email",
+        "Monthly Income", "Employment", "Created At"
+    ])
+    st.dataframe(df_customers, use_container_width=True, hide_index=True)
 else:
-    st.info("No users found.")
+    st.info("No customers found.")
 
 st.divider()
 
-# ── Loans Table ───────────────────────────────────────────────────────────────
-st.subheader("📋 Loan Applications")
-if loans:
-    # Status color coding
-    def color_status(val):
-        if val == "approved":
+# ── Applications ──────────────────────────────────────────────────────────────
+st.subheader("📋 Onboarding Applications")
+if applications:
+    def color_decision(val):
+        if val == "Approved":
             return "background-color: #d4edda; color: #155724"
-        elif val == "rejected":
+        if val == "Rejected":
             return "background-color: #f8d7da; color: #721c24"
+        if val == "Needs Review":
+            return "background-color: #fff3cd; color: #856404"
         return ""
 
-    styled = df_loans.style.applymap(color_status, subset=["Status"])
+    styled = df_apps.style.applymap(color_decision, subset=["Decision"])
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
-    # Filter by status
     st.subheader("🔍 Filter")
-    status_filter = st.selectbox("Filter by Status", ["All", "approved", "rejected"])
-    if status_filter != "All":
-        filtered = df_loans[df_loans["Status"] == status_filter]
+    filter_val = st.selectbox("Filter by Decision", ["All", "Approved", "Rejected", "Needs Review"])
+    if filter_val != "All":
+        filtered = df_apps[df_apps["Decision"] == filter_val]
         st.dataframe(filtered, use_container_width=True, hide_index=True)
 else:
-    st.info("No loan applications found.")
+    st.info("No applications found.")
 
 if st.button("🔄 Refresh Data"):
     st.cache_data.clear()

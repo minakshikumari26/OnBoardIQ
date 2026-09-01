@@ -1,69 +1,41 @@
+import requests
+
+from backend.config.settings import OPENSANCTIONS_API_URL, OPENSANCTIONS_TIMEOUT
+
+
 def check_compliance(data):
+    name = data.get("name", "").strip()
 
-    credit_score  = data["credit_score"]
-    dti           = data.get("dti", 0)
-    income        = data.get("income", 0)
-    loan_amount   = data.get("loan_amount", 0)
-    tenure_months = data.get("tenure_months", 12)   
-    existing_emi  = data.get("existing_emi", 0)     
-    active_loan   = data.get("active_loan", False)  
+    if not name:
+        return {"compliance_status": "clear", "reason": "No name to screen", "matches": []}
 
-    if dti > 1:
-        dti = dti / 100
+    # Search the OpenSanctions public API
+    params = {"q": name, "limit": 5}
 
-    if credit_score == 0:
-        pass
-    elif credit_score < 600:
-        return {
-            "compliance": False,
-            "reason": "Credit score below 600 — RBI minimum requirement"
-        }
+    try:
+        response = requests.get(OPENSANCTIONS_API_URL, params=params, timeout=OPENSANCTIONS_TIMEOUT)
+        results = response.json().get("results", [])
+    except Exception:
+        # If API is down or offline, don't block onboarding
+        return {"compliance_status": "clear",
+                "reason": "Sanctions service unavailable",
+                "matches": []}
 
-    if dti > 0.6:
-        return {
-            "compliance": False,
-            "reason": "Debt-to-income ratio exceeds 60%"
-        }
+    matches = []
+    for item in results:
+        score = item.get("score", 0)
+        if score > 0.7:
+            matches.append({
+                "name": item.get("caption", ""),
+                "score": round(score, 2),
+                "topics": item.get("properties", {}).get("topics", []),
+            })
 
-    if active_loan and income > 0:
+    if matches:
+        return {"compliance_status": "flagged",
+                "reason": f"Found {len(matches)} sanctions match(es)",
+                "matches": matches}
 
-        estimated_new_emi = loan_amount / tenure_months if tenure_months > 0 else loan_amount
-
-        total_emi = existing_emi + estimated_new_emi
-        emi_ratio = total_emi / income   
-
-        if emi_ratio > 0.5:
-            return {
-                "compliance": False,
-                "reason": (
-                    f"Existing loan detected. Total EMI burden would be "
-                    f"₹{int(total_emi)}/mo ({round(emi_ratio*100)}% of income). "
-                    f"Exceeds 50% affordability limit."
-                )
-            }
-
-        elif emi_ratio > 0.35:
-            return {
-                "compliance": True,
-                "reason": (
-                    f"Existing loan detected. EMI ratio {round(emi_ratio*100)}% — "
-                    f"borderline affordability. Conditional approval possible."
-                ),
-                "emi_ratio": round(emi_ratio, 3),
-                "existing_borrower": True
-            }
-
-        else:
-            return {
-                "compliance": True,
-                "reason": (
-                    f"Existing loan detected but EMI ratio {round(emi_ratio*100)}% "
-                    f"is within acceptable limits."
-                ),
-                "emi_ratio": round(emi_ratio, 3),
-                "existing_borrower": True
-            }
-    return {
-        "compliance": True,
-        "reason": "Compliance check passed"
-    }
+    return {"compliance_status": "clear",
+            "reason": "No sanctions match found",
+            "matches": []}

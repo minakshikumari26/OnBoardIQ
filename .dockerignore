@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.env
+.venv/
+venv/
+env/
+.git/
+.gitignore
+tests/
+notebooks/
+data/
+*.md
+.claude/
+.DS_Store
