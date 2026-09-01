@@ -10,7 +10,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.enums import TA_JUSTIFY
 
-OUTPUT = "/Users/minakshikumari/Library/CloudStorage/OneDrive-FICO/Desktop/OnBoardIQ_Learning_Roadmap.pdf"
+OUTPUT = "/Users/minakshikumari/Library/CloudStorage/OneDrive/Desktop/OnBoardIQ_Learning_Roadmap.pdf"
 
 styles = getSampleStyleSheet()
 title_style = ParagraphStyle("TitleBig", parent=styles["Title"], fontSize=22,
